@@ -1,0 +1,105 @@
+name: Pull Meta Data
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+    inputs:
+      script:
+        description: 'Which script to run'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - estimates-only
+          - insights-only
+          - estimates-tier1-only
+          - validate-only
+      dry_run:
+        description: 'Dry run (preview only, no saves)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  pull-estimates:
+    name: 'Script 1: Delivery Estimates (50 countries × 5 industries)'
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'schedule' || 
+      github.event.inputs.script == 'both' || 
+      github.event.inputs.script == 'estimates-only' ||
+      github.event.inputs.script == 'estimates-tier1-only'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run estimate puller
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          META_AD_ACCOUNT_ID: ${{ secrets.META_AD_ACCOUNT_ID }}
+          META_API_VERSION: 'v24.0'
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          FLAGS=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            FLAGS="$FLAGS --dry-run"
+          fi
+          if [ "${{ github.event.inputs.script }}" = "estimates-tier1-only" ]; then
+            FLAGS="$FLAGS --tier 1"
+          fi
+          node agents/estimate-puller.js $FLAGS
+
+  pull-insights:
+    name: 'Script 2: Campaign Insights (real data)'
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'schedule' || 
+      github.event.inputs.script == 'both' || 
+      github.event.inputs.script == 'insights-only'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run insights puller
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          META_AD_ACCOUNT_ID: ${{ secrets.META_AD_ACCOUNT_ID }}
+          META_API_VERSION: 'v24.0'
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          FLAGS=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            FLAGS="$FLAGS --dry-run"
+          fi
+          node agents/insights-puller.js $FLAGS
+
+  validate:
+    name: 'Validate token & connections'
+    runs-on: ubuntu-latest
+    if: github.event.inputs.script == 'validate-only'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - name: Validate connections
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          META_AD_ACCOUNT_ID: ${{ secrets.META_AD_ACCOUNT_ID }}
+          META_API_VERSION: 'v24.0'
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: node lib/validate-token.js
